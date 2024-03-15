@@ -1,140 +1,129 @@
 import express from "express";
-import jwt from "jsonwebtoken";
-import { User } from "./models/db.mjs";
-import { Strategy } from "passport-facebook";
-import passport from "passport";
-import session from "express-session";
-import cookieParser from "cookie-parser";
-import bodyParser from "body-parser";
 
+// rewrite http connect
+import http from "http";
+import { or } from "sequelize";
 const app = express();
-app.use(express.json());
-app.use(cookieParser());
-app.use(bodyParser.urlencoded({ extended: true }));
+const server = http.createServer(app);
 
-app.use(
-    session({
-        secret: "BAOMAT",
-        resave: true,
-        saveUninitialized: true,
-    })
-);
-app.use(passport.initialize());
-app.use(passport.session());
+import { Server } from "socket.io";
 
-// xac thuc user
-passport.serializeUser(function (user, done) {
-    done(null, user);
+const io = new Server(server, {
+    cors: {
+        origin: "http://127.0.0.1:5500",
+        methods: ["GET", "POST"],
+    },
 });
 
-// lay thong tin user
-passport.deserializeUser(function (user, done) {
-    done(null, user);
-});
-
-const port = 3000;
-
-app.get("/", (req, res) => {
-    res.json("Hello World!");
-});
-
-const createToken = (email) => {
-    return jwt.sign({ email }, "BAOMAT", { expiresIn: "1h" });
+const user = {
+    EdVTwrL0i47i7CdRAAAD: {
+        usd: 100,
+        btc: 10,
+    },
 };
 
-// define facebook strategy
-passport.use(
-    new Strategy(
-        {
-            clientID: "7581112768589832",
-            clientSecret: "da5e23449227a70c154ae73ef096bb79",
-            callbackURL: "http://localhost:3000/auth/facebook/callback",
-        },
-        async (accessToken, refreshToken, profile, done) => {
-            const user = await User.findOrCreate({
-                where: { email: profile.id },
-                defaults: {
-                    email: profile.id,
-                    password: "123456",
-                },
-            });
-            // send mail password to user
-            return done(null, user[0].dataValues);
+const orderBook = {
+    buy: [
+        // {
+        //     id: 0,
+        //     price: 100,
+        //     amount: 3,
+        //     user: "EdVTwrL0i47i7CdRAAAD",
+        // },
+    ],
+    sell: [],
+};
+
+// order book
+// buy 10$ * 3 => 30$
+// sell 10$ * 3 => 30$
+io.on("connection", (socket) => {
+    console.log(socket.id);
+    user[socket.id] = {
+        usd: 100,
+        btc: 10,
+    };
+
+    socket.emit("balance", user[socket.id]);
+    socket.on("buy", (data) => {
+        const { price, amount } = data;
+        orderBook.buy.push({
+            price,
+            amount,
+            total: price * amount,
+            user: socket.id,
+            id: orderBook.buy.length,
+        });
+        for (let i = 0; i < orderBook.sell.length; i++) {
+            const sellOrder = orderBook.sell[i];
+            if (sellOrder.user === socket.id) continue;
+            // buy all
+            const priceSell = sellOrder.price * sellOrder.amount;
+            const priceBuy = price * amount;
+            if (priceSell === priceBuy) {
+                // tru tien va cong btc
+                user[socket.id].usd -= priceBuy;
+                user[socket.id].btc += amount;
+
+                user[sellOrder.user].usd += priceSell;
+                user[sellOrder.user].btc -= sellOrder.amount;
+
+                // xoa order
+                orderBook.sell.splice(i, 1);
+
+                // xoa order buy
+                orderBook.buy.splice(orderBook.buy.length - 1, 1);
+            }
+            // gui thong bao cho nguoi mua (chinh minh) va cap nhat so du
+            socket.emit("balance", user[socket.id]);
+
+            // gui thong bao cho nguoi ban va cap nhat so du
+            io.to(sellOrder.user).emit("balance", user[sellOrder.user]);
         }
-    )
-);
-
-// define google strategy
-
-app.post("/register", async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-        return res.status(400).json("Invalid request");
-    }
-    // check if email exists
-    const checkEmail = await User.findOne({ where: { email } });
-
-    if (checkEmail) {
-        return res.status(400).json("Email exists");
-    }
-
-    const user = await User.create({ email, password });
-    res.cookie("auth", createToken(email), {
-        httpOnly: true,
-        maxAge: 1000 * 60 * 60,
-    });
-    return res.json(user);
-});
-
-app.post("/login", async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-        return res.status(400).json("Invalid request");
-    }
-
-    const user = await User.findOne({ where: { email } });
-    /* this  =>{
-			email
-			password
-		}
-	
-		 */
-    if (!user) {
-        return res.status(400).json("Email not found");
-    }
-    const valid = await user.validPassword(password);
-
-    if (!valid) {
-        return res.status(400).json("Invalid password");
-    }
-    res.cookie("auth", createToken(email), {
-        httpOnly: true,
-        maxAge: 1000 * 60 * 60,
+        io.emit("sellBook", orderBook.sell);
+        io.emit("buyBook", orderBook.buy);
     });
 
-    return res.json("Login successful");
+    socket.on("sell", (data) => {
+        const { price, amount } = data;
+        orderBook.sell.push({
+            price,
+            amount,
+            total: price * amount,
+            user: socket.id,
+            id: orderBook.sell.length,
+        });
+        for (let i = 0; i < orderBook.buy.length; i++) {
+            const buyOrder = orderBook.buy[i];
+            if (buyOrder.user === socket.id) continue;
+
+            // buy all
+            const priceBuy = buyOrder.price * buyOrder.amount;
+            const priceSell = price * amount;
+            if (priceSell === priceBuy) {
+                // tru tien va cong btc
+                user[socket.id].usd += priceBuy;
+                user[socket.id].btc -= amount;
+
+                user[buyOrder.user].usd -= priceBuy;
+                user[buyOrder.user].btc += amount;
+
+                orderBook.buy.splice(i, 1);
+
+                // xoa order buy
+                orderBook.sell.splice(orderBook.buy.length - 1, 1);
+            }
+            // gui thong bao cho nguoi ban (chinh minh) va cap nhat so du
+            socket.emit("balance", user[socket.id]);
+
+            // gui thong bao cho nguoi mua va cap nhat so du
+            io.to(buyOrder.user).emit("balance", user[buyOrder.user]);
+        }
+        io.emit("sellBook", orderBook.sell);
+        io.emit("buyBook", orderBook.buy);
+    });
 });
-
-// chuyen qua facebook de login
-app.get(
-    "/auth/facebook",
-    passport.authenticate("facebook", { scope: ["email"] })
-);
-
-// sau khi login thanh cong thi se chuyen ve trang web cua minh
-app.get(
-    "/auth/facebook/callback",
-    passport.authenticate("facebook", {
-        failureRedirect: "/login",
-    }),
-    (req, res) => {
-        // Successful authentication, redirect home.
-        res.json("Login successful");
-    }
-);
-
-// ACL => Access Control List
-
-app.listen(port, () => {
+const port = 3000;
+server.listen(port, () => {
     console.log(`Example app listening at http://localhost:${port}`);
 });

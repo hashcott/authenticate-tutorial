@@ -1,8 +1,23 @@
-"use server";
-
+"use client";
 import Image from "next/image";
+import { useEffect } from "react";
+import { io } from "socket.io-client";
 
-export default async function Home() {
+export default function Home() {
+    useEffect(() => {
+        const socket = io("http://localhost:3001");
+        socket.on("connect", () => {
+            console.log("Connected to server");
+        });
+        socket.on("connect_error", function (err) {
+            console.log(err);
+        });
+        console.log("Hello");
+        return () => {
+            socket.disconnect();
+        };
+    }, []);
+
     const getPosts = async () => {
         // gọi api để lấy dữ liệu và cache lại (Important: cache lại dữ liệu để tránh gọi api nhiều lần)
         const res = await fetch(

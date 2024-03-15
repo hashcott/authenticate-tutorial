@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/pure-min.css"
+            integrity="sha384-X38yfunGUhNzHpBaEBsWLO+A0HDYOQi8ufWDkZ0k9e0eXz/tH3II7uKZ9msv++Ls"
+            crossorigin="anonymous"
+        />
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            .sidebar {
+                background-color: #f0f0f0;
+                height: 100vh;
+                width: 50%;
+                text-align: center;
+                padding: 0 10px;
+            }
+            .content {
+                background-color: #f0f0f0;
+                height: 100vh;
+                width: 50%;
+                text-align: center;
+                padding: 0 10px;
+            }
+            .pure-table-custom {
+                width: 100%;
+                border-collapse: collapse;
+                border-spacing: 0;
+                border: 1px solid #cbcbcb;
+            }
+            /* set color first column in table */
+
+            .pure-table-custom th {
+                text-align: center;
+            }
+            .pure-table-custom-buy {
+                margin-top: 20px;
+            }
+
+            .pure-table-custom-buy td:first-child {
+                color: rgb(28, 184, 65);
+            }
+
+            .pure-table-custom-sell td:first-child {
+                color: rgb(202, 60, 60);
+            }
+            .button-success {
+                background: rgb(28, 184, 65);
+                /* this is a green */
+            }
+
+            .color-success {
+                color: rgb(28, 184, 65);
+                /* this is a green */
+            }
+
+            .button-error {
+                background: rgb(202, 60, 60);
+                /* this is a maroon */
+            }
+        </style>
+        <title>Order Book</title>
+    </head>
+    <body>
+        <div class="pure-g">
+            <div class="sidebar">
+                <h1>Order Book</h1>
+
+                <table
+                    class="pure-table pure-table-custom pure-table-custom-sell"
+                >
+                    <thead>
+                        <tr>
+                            <th>Price ($)</th>
+                            <th>Amount (BTC)</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sellBook"></tbody>
+                </table>
+
+                <table
+                    class="pure-table pure-table-custom pure-table-custom-buy"
+                >
+                    <thead>
+                        <tr>
+                            <th>Price ($)</th>
+                            <th>Amount (BTC)</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="buyBook"></tbody>
+                </table>
+            </div>
+            <div class="content">
+                <h1>Place Order</h1>
+                <p id="userId"></p>
+                <p>
+                    Balance USD:
+                    <span id="balanceUsd" class="color-success">100</span> $
+                </p>
+                <p>
+                    Balance BTC:
+                    <span id="balanceBtc" class="color-success">10</span> BTC
+                </p>
+
+                <form id="order" class="pure-form">
+                    <fieldset>
+                        <input
+                            name="price"
+                            type="number"
+                            placeholder="Price"
+                            style="margin-bottom: 10px"
+                        />
+                        <input
+                            name="amount"
+                            type="text"
+                            placeholder="Amount"
+                            style="margin-bottom: 10px"
+                        />
+                    </fieldset>
+                    <fieldset>
+                        <button
+                            type="submit"
+                            class="pure-button button-success"
+                        >
+                            Buy
+                        </button>
+                        <button type="submit" class="pure-button button-error">
+                            Sell
+                        </button>
+                    </fieldset>
+                </form>
+            </div>
+        </div>
+
+        <script type="module">
+            import socketIoClient from "https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/+esm";
+            const socket = socketIoClient("http://localhost:3000");
+            socket.on("connect", () => {
+                document.getElementById("userId").textContent =
+                    "User ID: " + socket.id;
+            });
+
+            socket.on("balance", (data) => {
+                console.log(data);
+                document.getElementById("balanceUsd").textContent = data.usd;
+                document.getElementById("balanceBtc").textContent = data.btc;
+            });
+            document
+                .getElementById("order")
+                .addEventListener("submit", function (e) {
+                    e.preventDefault();
+                    if (e.submitter.classList.contains("button-success")) {
+                        // get the value of the input in form
+                        const price = e.target.price.value;
+                        const amount = e.target.amount.value;
+                        socket.emit("buy", {
+                            price: parseFloat(price),
+                            amount: parseFloat(amount),
+                        });
+                    } else {
+                        // get the value of the input in form
+                        const price = e.target.price.value;
+                        const amount = e.target.amount.value;
+                        socket.emit("sell", {
+                            price: parseFloat(price),
+                            amount: parseFloat(amount),
+                        });
+                    }
+                });
+
+            socket.on("buyBook", (data) => {
+                const buyBook = document.getElementById("buyBook");
+                buyBook.innerHTML = "";
+                data.forEach((order) => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+            				<td>${order.price}</td>
+            				<td>${order.amount}</td>
+            				<td>${order.total}</td>
+            				`;
+                    buyBook.appendChild(tr);
+                });
+            });
+
+            socket.on("sellBook", (data) => {
+                const sellBook = document.getElementById("sellBook");
+                sellBook.innerHTML = "";
+                data.forEach((order) => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+            				<td>${order.price}</td>
+            				<td>${order.amount}</td>
+            				<td>${order.total}</td>
+            				`;
+                    sellBook.appendChild(tr);
+                });
+            });
+        </script>
+    </body>
+</html>
